@@ -8,7 +8,7 @@ import torch.nn.functional as F
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 import torch.utils.data as data
-import torchvision
+# import torchvision
 import torchvision.transforms as transforms
 from data_loader import SYSUData, RegDBData, TestData
 from data_manager import *
@@ -24,7 +24,7 @@ parser.add_argument('--dataset', default='sysu',  help='dataset name: regdb or s
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--optim', default='sgd', type=str, help='optimizer')
 parser.add_argument('--arch', default='resnet50', type=str, help='network baseline')
-parser.add_argument('--resume', '-r', default='', type=str, help='resume from checkpoint')
+parser.add_argument('--resume', '-r', default='sysu_drop_0.2_k_4_p_8_lr_0.1_seed_0_best.t', type=str, help='resume from checkpoint')
 parser.add_argument('--model_path', default='save_model/', type=str, help='model save path')
 parser.add_argument('--log_path', default='log/', type=str, help='log save path')
 parser.add_argument('--workers', default=4, type=int, metavar='N',
@@ -35,11 +35,11 @@ parser.add_argument('--img_w', default=144, type=int,
                     metavar='imgw', help='img width')
 parser.add_argument('--img_h', default=288, type=int,
                     metavar='imgh', help='img height')
-parser.add_argument('--batch-size', default=32, type=int,
+parser.add_argument('--batch-size', default=4, type=int,
                     metavar='B', help='training batch size')
 parser.add_argument('--part', default=3, type=int,
                     metavar='tb', help=' part number')
-parser.add_argument('--test-batch', default=64, type=int,
+parser.add_argument('--test-batch', default=4, type=int,
                     metavar='tb', help='testing batch size')
 parser.add_argument('--method', default='id', type=str,
                     metavar='m', help='Method type')
@@ -58,12 +58,12 @@ np.random.seed(1)
 dataset = args.dataset
 if dataset == 'sysu':
     # TODO: define your data path for RegDB dataset
-    data_path = 'YOUR DATA PATH'
+    data_path = 'F:/SYSU-MM01/'
     n_class = 395
     test_mode = [1, 2]
 elif dataset =='regdb':
     # TODO: define your data path for RegDB dataset
-    data_path = 'YOUR DATA PATH'
+    data_path = 'F:/RegDB/'
     n_class = 206
     test_mode = [2, 1]
  
@@ -164,17 +164,20 @@ def extract_gall_feat(gall_loader):
     start = time.time()
     ptr = 0
     gall_feat = np.zeros((ngall, feature_dim))
-    gall_feat_att = np.zeros((ngall, pool_dim))
+    # gall_feat_att = np.zeros((ngall, pool_dim))
     with torch.no_grad():
         for batch_idx, (input, label ) in enumerate(gall_loader):
             batch_num = input.size(0)
             input = Variable(input.cuda())
-            feat, feat_att = net(input, input, 0, test_mode[0])
+            # feat, feat_att = net(input, input, 0, test_mode[0])
+            # feat = net(input, input, 0, test_mode[0])
+            feat = net(input, input, test_mode[0])
             gall_feat[ptr:ptr+batch_num,: ] = feat.detach().cpu().numpy()
-            gall_feat_att[ptr:ptr+batch_num,: ] = feat_att.detach().cpu().numpy()
+            # gall_feat_att[ptr:ptr+batch_num,: ] = feat_att.detach().cpu().numpy()
             ptr = ptr + batch_num         
     print('Extracting Time:\t {:.3f}'.format(time.time()-start))
-    return gall_feat, gall_feat_att
+    # return gall_feat, gall_feat_att
+    return gall_feat
     
 def extract_query_feat(query_loader):
     net.eval()
@@ -182,19 +185,22 @@ def extract_query_feat(query_loader):
     start = time.time()
     ptr = 0
     query_feat = np.zeros((nquery, feature_dim))
-    query_feat_att = np.zeros((nquery, pool_dim))
+    # query_feat_att = np.zeros((nquery, pool_dim))
     with torch.no_grad():
         for batch_idx, (input, label ) in enumerate(query_loader):
             batch_num = input.size(0)
             input = Variable(input.cuda())
-            feat, feat_att = net(input, input, 0, test_mode[1])
+            # feat = net(input, input, 0, test_mode[1])
+            feat = net(input, input, test_mode[1])
             query_feat[ptr:ptr+batch_num,: ] = feat.detach().cpu().numpy()
-            query_feat_att[ptr:ptr+batch_num,: ] = feat_att.detach().cpu().numpy()
+            # query_feat_att[ptr:ptr+batch_num,: ] = feat_att.detach().cpu().numpy()
             ptr = ptr + batch_num         
     print('Extracting Time:\t {:.3f}'.format(time.time()-start))
-    return query_feat, query_feat_att
+    # return query_feat, query_feat_att
+    return query_feat
     
-query_feat, query_feat_att = extract_query_feat(query_loader)
+# query_feat, query_feat_att = extract_query_feat(query_loader)
+query_feat = extract_query_feat(query_loader)
 
 all_cmc = 0
 all_mAP = 0 
@@ -206,45 +212,48 @@ for trial in range(10):
     trial_gallset = TestData(gall_img, gall_label, transform = transform_test,img_size =(args.img_w,args.img_h))
     trial_gall_loader  = data.DataLoader(trial_gallset, batch_size=args.test_batch, shuffle=False, num_workers=4)
     
-    gall_feat, gall_feat_att = extract_gall_feat(trial_gall_loader)
+    # gall_feat, gall_feat_att = extract_gall_feat(trial_gall_loader)
+    gall_feat = extract_gall_feat(trial_gall_loader)
     
     # fc feature 
     distmat = np.matmul(query_feat, np.transpose(gall_feat))
     cmc, mAP, mINP   = eval_sysu(-distmat, query_label, gall_label,query_cam, gall_cam)
     
     # attention feature
-    distmat_att = np.matmul(query_feat_att, np.transpose(gall_feat_att))
-    cmc_att, mAP_att, mINP_att = eval_sysu(-distmat_att, query_label, gall_label,query_cam, gall_cam)
+    # distmat_att = np.matmul(query_feat_att, np.transpose(gall_feat_att))
+    # distmat = np.matmul(query_feat, np.transpose(gall_feat))
+    # cmc_att, mAP_att, mINP_att = eval_sysu(-distmat_att, query_label, gall_label,query_cam, gall_cam)
+    # cmc, mAP, mINP = eval_sysu(-distmat, query_label, gall_label,query_cam, gall_cam)
     if trial ==0:
         all_cmc = cmc
         all_mAP = mAP
         all_mINP = mINP
-        all_cmc_att = cmc_att
-        all_mAP_att = mAP_att
-        all_mINP_att = mINP_att
+        # all_cmc_att = cmc_att
+        # all_mAP_att = mAP_att
+        # all_mINP_att = mINP_att
     else:
         all_cmc = all_cmc + cmc
         all_mAP = all_mAP + mAP
         all_mINP = all_mINP + mINP
-        all_cmc_att = all_cmc_att + cmc_att
-        all_mAP_att = all_mAP_att + mAP_att
-        all_mINP_att = all_mINP_att + mINP_att
+        # all_cmc_att = all_cmc_att + cmc_att
+        # all_mAP_att = all_mAP_att + mAP_att
+        # all_mINP_att = all_mINP_att + mINP_att
 
     print('Test Trial: {}'.format(trial))
     print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
             cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
-    print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
-            cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
+    # print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+    #         cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
 
 cmc = all_cmc /10 
 mAP = all_mAP /10
 mINP = all_mINP /10
 
-cmc_att = all_cmc_att /10
-mAP_att = all_mAP_att /10
-mINP_att = all_mINP_att /10
+# cmc_att = all_cmc_att /10
+# mAP_att = all_mAP_att /10
+# mINP_att = all_mINP_att /10
 print ('All Average:')
 print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
             cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
-print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
-            cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
+# print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+#             cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))

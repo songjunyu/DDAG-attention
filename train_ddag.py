@@ -8,7 +8,7 @@ import torch.optim as optim
 import torch.backends.cudnn as cudnn
 from torch.autograd import Variable
 import torch.utils.data as data
-import torchvision
+# import torchvision
 import torchvision.transforms as transforms
 from data_loader import SYSUData, RegDBData, TestData
 from data_manager import *
@@ -17,7 +17,7 @@ from model_main import embed_net
 from utils import *
 from loss import OriTripletLoss
 from torch.optim import lr_scheduler
-from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 import torch.nn.functional as F
 import math
 
@@ -80,12 +80,12 @@ set_seed(args.seed)
 dataset = args.dataset
 if dataset == 'sysu':
     # TODO: define your data path
-    data_path = 'YOUR DATA PATH'
+    data_path = '/dev/shm/SYSU-MM01/'
     log_path = args.log_path + 'sysu_log_ddag/'
     test_mode = [1, 2] # infrared to visible
 elif dataset =='regdb':
     # TODO: define your data path for RegDB dataset
-    data_path = 'YOUR DATA PATH'
+    data_path = '/dev/shm/RegDB/'
     log_path = args.log_path + 'regdb_log_ddag/'
     test_mode = [2, 1] # visible to infrared
 
@@ -100,11 +100,11 @@ if not os.path.isdir(args.vis_log_path):
 
 # log file name
 suffix = dataset
-if args.graph:
-    suffix = suffix + '_G'
-if args.wpa:
-    suffix = suffix + '_P_{}'.format(args.part)
-suffix = suffix + '_drop_{}_{}_{}_lr_{}_seed_{}'.format(args.drop, args.num_pos, args.batch_size, args.lr, args.seed)
+#if args.graph:
+    #suffix = suffix + '_g'
+#if args.wpa:
+#    suffix = suffix + '_p_{}'.format(args.part)
+suffix = suffix + '_drop_{}_k_{}_p_{}_lr_{}_seed_{}'.format(args.drop, args.num_pos, args.batch_size, args.lr, args.seed)
 if not args.optim == 'sgd':
     suffix = suffix + '_' + args.optim
 if dataset == 'regdb':
@@ -216,12 +216,12 @@ criterion2.to(device)
 if args.optim == 'sgd':
     ignored_params = list(map(id, net.bottleneck.parameters())) \
                      + list(map(id, net.classifier.parameters())) \
-                     + list(map(id, net.wpa.parameters())) \
-                     + list(map(id, net.attention_0.parameters())) \
-                     + list(map(id, net.attention_1.parameters())) \
-                     + list(map(id, net.attention_2.parameters())) \
-                     + list(map(id, net.attention_3.parameters())) \
-                     + list(map(id, net.out_att.parameters()))
+                    #  + list(map(id, net.wpa.parameters())) \
+                    #  + list(map(id, net.attention_0.parameters())) \
+                    #  + list(map(id, net.attention_1.parameters())) \
+                    #  + list(map(id, net.attention_2.parameters())) \
+                    #  + list(map(id, net.attention_3.parameters())) \
+                    #  + list(map(id, net.out_att.parameters()))
 
     base_params = filter(lambda p: id(p) not in ignored_params, net.parameters())
 
@@ -229,24 +229,26 @@ if args.optim == 'sgd':
         {'params': base_params, 'lr': 0.1 * args.lr},
         {'params': net.bottleneck.parameters(), 'lr': args.lr},
         {'params': net.classifier.parameters(), 'lr': args.lr},
-        {'params': net.wpa.parameters(), 'lr': args.lr},
-        {'params': net.attention_0.parameters(), 'lr': args.lr},
-        {'params': net.attention_1.parameters(), 'lr': args.lr},
-        {'params': net.attention_2.parameters(), 'lr': args.lr},
-        {'params': net.attention_3.parameters(), 'lr': args.lr},
-        {'params': net.out_att.parameters(), 'lr': args.lr} ,],
+        # {'params': net.wpa.parameters(), 'lr': args.lr},
+        # {'params': net.attention_0.parameters(), 'lr': args.lr},
+        # {'params': net.attention_1.parameters(), 'lr': args.lr},
+        # {'params': net.attention_2.parameters(), 'lr': args.lr},
+        # {'params': net.attention_3.parameters(), 'lr': args.lr},
+        # {'params': net.out_att.parameters(), 'lr': args.lr} ,
+          ],
         weight_decay=5e-4, momentum=0.9, nesterov=True)
 
-    optimizer_G = optim.SGD([
-        {'params': net.attention_0.parameters(), 'lr': args.lr},
-        {'params': net.attention_1.parameters(), 'lr': args.lr},
-        {'params': net.attention_2.parameters(), 'lr': args.lr},
-        {'params': net.attention_3.parameters(), 'lr': args.lr},
-        {'params': net.out_att.parameters(), 'lr': args.lr}, ],
-        weight_decay=5e-4, momentum=0.9, nesterov=True)
+    # optimizer_G = optim.SGD([
+    #     {'params': net.attention_0.parameters(), 'lr': args.lr},
+    #     {'params': net.attention_1.parameters(), 'lr': args.lr},
+    #     {'params': net.attention_2.parameters(), 'lr': args.lr},
+    #     {'params': net.attention_3.parameters(), 'lr': args.lr},
+    #     {'params': net.out_att.parameters(), 'lr': args.lr}, ],
+    #     weight_decay=5e-4, momentum=0.9, nesterov=True)
 
 # exp_lr_scheduler = lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
-def adjust_learning_rate(optimizer_P, optimizer_G, epoch):
+# def adjust_learning_rate(optimizer_P, optimizer_G, epoch):
+def adjust_learning_rate(optimizer_P,  epoch):
     """Sets the learning rate to the initial LR decayed by 10 every 30 epochs"""
     if epoch < 10:
         lr = args.lr * (epoch + 1) / 10
@@ -265,11 +267,12 @@ def adjust_learning_rate(optimizer_P, optimizer_G, epoch):
 
 def train(epoch, wG):
     # adjust learning rate
-    current_lr = adjust_learning_rate(optimizer_P, optimizer_G, epoch)
+    # current_lr = adjust_learning_rate(optimizer_P, optimizer_G, epoch)
+    current_lr = adjust_learning_rate(optimizer_P,  epoch)
     train_loss = AverageMeter()
     id_loss = AverageMeter()
     tri_loss = AverageMeter()
-    graph_loss = AverageMeter()
+    # graph_loss = AverageMeter()
     data_time = AverageMeter()
     batch_time = AverageMeter()
     correct = 0
@@ -286,21 +289,22 @@ def train(epoch, wG):
         
         # Graph construction
         # one_hot = F.one_hot(labels, num_classes=n_class) # for version > 1.2
-        one_hot = torch.index_select(torch.eye(n_class), dim = 0, index = labels)
+        # one_hot = torch.index_select(torch.eye(n_class), dim = 0, index = labels)
         # Compute A in Eq. (6)
-        adj = torch.mm(one_hot, torch.transpose(one_hot, 0, 1)).float() + torch.eye(labels.size()[0]).float()
-        w_norm = adj.pow(2).sum(1, keepdim=True).pow(1. / 2)
-        adj_norm = adj.div(w_norm) # normalized adjacency matrix 
+        # adj = torch.mm(one_hot, torch.transpose(one_hot, 0, 1)).float() + torch.eye(labels.size()[0]).float()
+        # w_norm = adj.pow(2).sum(1, keepdim=True).pow(1. / 2)
+        # adj_norm = adj.div(w_norm) # normalized adjacency matrix 
         
         input1 = Variable(input1.cuda())
         input2 = Variable(input2.cuda())
 
         labels = Variable(labels.cuda())
-        adj_norm = Variable(adj_norm.cuda())
+        # adj_norm = Variable(adj_norm.cuda())
         data_time.update(time.time() - end)
 
-        # Forward into the network
-        feat, out0, out_att, output = net(input1, input2, adj_norm)
+        # Forward into the network, feat->x_pool, out0->class(x_pool.bn), out_att->class(x_pool.bn.wpa),output(x_pool.graph)
+        # feat, out0, out_att, output = net(input1, input2, adj_norm)
+        feat, out0 = net(input1, input2)
 
         # baseline loss: identity loss + triplet loss Eq. (1)
         loss_id = criterion1(out0, labels)
@@ -310,26 +314,29 @@ def train(epoch, wG):
         correct += (predicted.eq(labels).sum().item() / 2)
         
         # Part attention loss
-        loss_p = criterion1(out_att, labels)
+        # loss_p = criterion1(out_att, labels)
         
         # Graph attention loss Eq. (9)
-        loss_G = F.nll_loss(output, labels)
+        # loss_G = F.nll_loss(output, labels)
 
         # Instance-level part-aggregated feature learning Eq. (10)
-        loss = loss_id + loss_tri + loss_p
+        # loss = loss_id + loss_tri + loss_p
         # Overall loss Eq. (11)
-        loss_total = loss + wG * loss_G
+        # loss_total = loss + wG * loss_G
+        loss = loss_id + loss_tri
+
 
         # optimization
         optimizer_P.zero_grad()
-        loss_total.backward()
+        # loss_total.backward()
+        loss.backward()
         optimizer_P.step()
 
         # log different loss components
         train_loss.update(loss.item(), 2 * input1.size(0))
         id_loss.update(loss_id.item(), 2 * input1.size(0))
         tri_loss.update(loss_tri.item(), 2 * input1.size(0))
-        graph_loss.update(loss_G.item(), 2 * input1.size(0))
+        # graph_loss.update(loss_G.item(), 2 * input1.size(0))
         total += labels.size(0)
 
         # measure elapsed time
@@ -342,16 +349,17 @@ def train(epoch, wG):
                   'Loss: {train_loss.val:.4f} ({train_loss.avg:.4f}) '
                   'iLoss: {id_loss.val:.4f} ({id_loss.avg:.4f}) '
                   'TLoss: {tri_loss.val:.4f} ({tri_loss.avg:.4f}) '
-                  'GLoss: {graph_loss.val:.4f} ({graph_loss.avg:.4f}) '
+                #   'GLoss: {graph_loss.val:.4f} ({graph_loss.avg:.4f}) '
                   'Accu: {:.2f}'.format(
                    epoch, batch_idx, len(trainloader), current_lr,
                    100. * correct / total, batch_time=batch_time,
-                   train_loss=train_loss, id_loss=id_loss, tri_loss=tri_loss, graph_loss=graph_loss))
+                   train_loss=train_loss, id_loss=id_loss, tri_loss=tri_loss
+                   ))
 
     writer.add_scalar('total_loss', train_loss.avg, epoch)
     writer.add_scalar('id_loss', id_loss.avg, epoch)
     writer.add_scalar('tri_loss', tri_loss.avg, epoch)
-    writer.add_scalar('graph_loss', graph_loss.avg, epoch)
+    # writer.add_scalar('graph_loss', graph_loss.avg, epoch)
     writer.add_scalar('lr', current_lr, epoch)
     # computer wG
     return 1. / (1. + train_loss.avg)
@@ -363,14 +371,15 @@ def test(epoch):
     start = time.time()
     ptr = 0
     gall_feat = np.zeros((ngall, 2048))
-    gall_feat_att = np.zeros((ngall, 2048))
+    # gall_feat_att = np.zeros((ngall, 2048))
     with torch.no_grad():
         for batch_idx, (input, label) in enumerate(gall_loader):
             batch_num = input.size(0)
             input = Variable(input.cuda())
-            feat, feat_att = net(input, input, 0, test_mode[0])
+            # feat, feat_att = net(input, input, 0, test_mode[0])
+            feat = net(input, input, test_mode[0])
             gall_feat[ptr:ptr + batch_num, :] = feat.detach().cpu().numpy()
-            gall_feat_att[ptr:ptr + batch_num, :] = feat_att.detach().cpu().numpy()
+            # gall_feat_att[ptr:ptr + batch_num, :] = feat_att.detach().cpu().numpy()
             ptr = ptr + batch_num
     print('Extracting Time:\t {:.3f}'.format(time.time() - start))
 
@@ -380,38 +389,40 @@ def test(epoch):
     start = time.time()
     ptr = 0
     query_feat = np.zeros((nquery, 2048))
-    query_feat_att = np.zeros((nquery, 2048))
+    # query_feat_att = np.zeros((nquery, 2048))
     with torch.no_grad():
         for batch_idx, (input, label) in enumerate(query_loader):
             batch_num = input.size(0)
             input = Variable(input.cuda())
-            feat, feat_att = net(input, input, 0, test_mode[1])
+            # feat, feat_att = net(input, input,  test_mode[1])
+            feat = net(input, input, test_mode[1])
             query_feat[ptr:ptr + batch_num, :] = feat.detach().cpu().numpy()
-            query_feat_att[ptr:ptr + batch_num, :] = feat_att.detach().cpu().numpy()
+            # query_feat_att[ptr:ptr + batch_num, :] = feat_att.detach().cpu().numpy()
             ptr = ptr + batch_num
     print('Extracting Time:\t {:.3f}'.format(time.time() - start))
 
     start = time.time()
     # compute the similarity
     distmat = np.matmul(query_feat, np.transpose(gall_feat))
-    distmat_att = np.matmul(query_feat_att, np.transpose(gall_feat_att))
+    # distmat_att = np.matmul(query_feat_att, np.transpose(gall_feat_att))
 
     # evaluation
     if dataset == 'regdb':
         cmc, mAP, mINP = eval_regdb(-distmat, query_label, gall_label)
-        cmc_att, mAP_att, mINP_att = eval_regdb(-distmat_att, query_label, gall_label)
+        # cmc_att, mAP_att, mINP_att = eval_regdb(-distmat_att, query_label, gall_label)
     elif dataset == 'sysu':
         cmc, mAP, mINP = eval_sysu(-distmat, query_label, gall_label, query_cam, gall_cam)
-        cmc_att, mAP_att, mINP_att = eval_sysu(-distmat_att, query_label, gall_label, query_cam, gall_cam)
+        # cmc_att, mAP_att, mINP_att = eval_sysu(-distmat_att, query_label, gall_label, query_cam, gall_cam)
     print('Evaluation Time:\t {:.3f}'.format(time.time() - start))
 
     writer.add_scalar('rank1', cmc[0], epoch)
     writer.add_scalar('mAP', mAP, epoch)
-    writer.add_scalar('rank1_att', cmc_att[0], epoch)
-    writer.add_scalar('mAP_att', mAP_att, epoch)
-    writer.add_scalar('mAP_att', mAP_att, epoch)
-    writer.add_scalar('mINP_att', mINP_att, epoch)
-    return cmc, mAP, mINP, cmc_att, mAP_att, mINP_att
+    # writer.add_scalar('rank1_att', cmc_att[0], epoch)
+    # writer.add_scalar('mAP_att', mAP_att, epoch)
+    writer.add_scalar('mINP', mINP, epoch)
+    # writer.add_scalar('mINP_att', mINP_att, epoch)
+    # return cmc, mAP, mINP, cmc_att, mAP_att, mINP_att
+    return cmc, mAP, mINP
 
 
 # training
@@ -426,9 +437,9 @@ for epoch in range(start_epoch, 81 - start_epoch):
 
     trainset.cIndex = sampler.index1  # color index
     trainset.tIndex = sampler.index2  # infrared index
-    print(epoch)
-    print(trainset.cIndex)
-    print(trainset.tIndex)
+    # print(epoch)
+    # print(trainset.cIndex)
+    # print(trainset.tIndex)
 
     loader_batch = args.batch_size * args.num_pos
 
@@ -443,26 +454,28 @@ for epoch in range(start_epoch, 81 - start_epoch):
         print('Test Epoch: {}'.format(epoch), file=test_log_file)
 
         # testing
-        cmc, mAP, mINP, cmc_att, mAP_att, mINP_att = test(epoch)
+        # cmc, mAP, mINP, cmc_att, mAP_att, mINP_att = test(epoch)
+        cmc, mAP, mINP = test(epoch)
         # log output
         print('FC:   Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
             cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
         print('FC:   Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
             cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP), file=test_log_file)
 
-        print('FC_att:   Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
-            cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
-        print('FC_att:   Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
-            cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att), file=test_log_file)
+        # print('FC_att:   Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+        #     cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
+        # print('FC_att:   Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+        #     cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att), file=test_log_file)
         test_log_file.flush()
         
         # save model
-        if cmc_att[0] > best_acc:  # not the real best for sysu-mm01
-            best_acc = cmc_att[0]
+        # if cmc_att[0] > best_acc:  # not the real best for sysu-mm01
+        if cmc[0] > best_acc:  # not the real best for sysu-mm01
+            best_acc = cmc[0]
             state = {
                 'net': net.state_dict(),
-                'cmc': cmc_att,
-                'mAP': mAP_att,
+                'cmc': cmc,
+                'mAP': mAP,
                 'epoch': epoch,
             }
             torch.save(state, checkpoint_path + suffix + '_best.t')

@@ -139,8 +139,8 @@ class embed_net(nn.Module):
         self.base_resnet = base_resnet(arch=arch)
         pool_dim = 2048
         self.dropout = drop
-        self.part = part
-        self.lpa = wpa
+        # self.part = part
+        # self.lpa = wpa
 
         self.l2norm = Normalize(2)
         self.bottleneck = nn.BatchNorm1d(pool_dim)
@@ -157,16 +157,16 @@ class embed_net(nn.Module):
         self.classifier2.apply(weights_init_classifier)
 
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
-        self.wpa = IWPA(pool_dim, part)
+        # self.wpa = IWPA(pool_dim, part)
 
 
-        self.attentions = [GraphAttentionLayer(pool_dim, low_dim, dropout=drop, alpha=alpha, concat=True) for _ in range(nheads)]
-        for i, attention in enumerate(self.attentions):
-            self.add_module('attention_{}'.format(i), attention)
+        # self.attentions = [GraphAttentionLayer(pool_dim, low_dim, dropout=drop, alpha=alpha, concat=True) for _ in range(nheads)]
+        # for i, attention in enumerate(self.attentions):
+        #     self.add_module('attention_{}'.format(i), attention)
 
-        self.out_att = GraphAttentionLayer(low_dim * nheads, class_num, dropout=drop, alpha=alpha, concat=False)
+        # self.out_att = GraphAttentionLayer(low_dim * nheads, class_num, dropout=drop, alpha=alpha, concat=False)
 
-    def forward(self, x1, x2, adj, modal=0, cpa = False):
+    def forward(self, x1, x2,  modal=0, cpa = False):
         # domain specific block
         if modal == 0:
             x1 = self.visible_module(x1)
@@ -183,16 +183,18 @@ class embed_net(nn.Module):
         x_pool = x_pool.view(x_pool.size(0), x_pool.size(1))
         feat  = self.bottleneck(x_pool)
 
-        if self.lpa:
-            # intra-modality weighted part attention
-            feat_att = self.wpa(x, feat, 1, self.part)
+        # if self.lpa:
+        #     # intra-modality weighted part attention
+        #     feat_att = self.wpa(x, feat, 1, self.part)
 
         if self.training:
-            # cross-modality graph attention
-            x_g = F.dropout(x_pool, self.dropout, training=self.training)
-            x_g = torch.cat([att(x_g, adj) for att in self.attentions], dim=1)
-            x_g = F.dropout(x_g, self.dropout, training=self.training)
-            x_g = F.elu(self.out_att(x_g, adj))
-            return x_pool, self.classifier(feat), self.classifier(feat_att), F.log_softmax(x_g, dim=1)
+            # # cross-modality graph attention
+            # x_g = F.dropout(x_pool, self.dropout, training=self.training)
+            # x_g = torch.cat([att(x_g, adj) for att in self.attentions], dim=1)
+            # x_g = F.dropout(x_g, self.dropout, training=self.training)
+            # x_g = F.elu(self.out_att(x_g, adj))
+            # return x_pool, self.classifier(feat), self.classifier(feat_att), F.log_softmax(x_g, dim=1)
+            return x_pool, self.classifier(feat)
         else:
-            return self.l2norm(feat), self.l2norm(feat_att)
+            # return self.l2norm(feat), self.l2norm(feat_att)
+            return self.l2norm(feat)
