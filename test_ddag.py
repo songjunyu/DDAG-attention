@@ -24,7 +24,7 @@ parser.add_argument('--dataset', default='sysu',  help='dataset name: regdb or s
 parser.add_argument('--lr', default=0.01, type=float, help='learning rate')
 parser.add_argument('--optim', default='sgd', type=str, help='optimizer')
 parser.add_argument('--arch', default='resnet50', type=str, help='network baseline')
-parser.add_argument('--resume', '-r', default='sysu_drop_0.2_k_4_p_8_lr_0.1_seed_0_best.t', type=str, help='resume from checkpoint')
+parser.add_argument('--resume', '-r', default='', type=str, help='resume from checkpoint')
 parser.add_argument('--model_path', default='save_model/', type=str, help='model save path')
 parser.add_argument('--log_path', default='log/', type=str, help='log save path')
 parser.add_argument('--workers', default=4, type=int, metavar='N',
@@ -35,11 +35,11 @@ parser.add_argument('--img_w', default=144, type=int,
                     metavar='imgw', help='img width')
 parser.add_argument('--img_h', default=288, type=int,
                     metavar='imgh', help='img height')
-parser.add_argument('--batch-size', default=4, type=int,
+parser.add_argument('--batch-size', default=8, type=int,
                     metavar='B', help='training batch size')
 parser.add_argument('--part', default=3, type=int,
                     metavar='tb', help=' part number')
-parser.add_argument('--test-batch', default=4, type=int,
+parser.add_argument('--test-batch', default=64, type=int,
                     metavar='tb', help='testing batch size')
 parser.add_argument('--method', default='id', type=str,
                     metavar='m', help='Method type')
@@ -56,14 +56,15 @@ args = parser.parse_args()
 os.environ['CUDA_VISIBLE_DEVICES'] = args.gpu
 np.random.seed(1)
 dataset = args.dataset
+print(dataset)
 if dataset == 'sysu':
     # TODO: define your data path for RegDB dataset
-    data_path = 'F:/SYSU-MM01/'
+    data_path = '/dev/shm/SYSU-MM01/'
     n_class = 395
     test_mode = [1, 2]
 elif dataset =='regdb':
     # TODO: define your data path for RegDB dataset
-    data_path = 'F:/RegDB/'
+    data_path = 'dev/shm/RegDB/'
     n_class = 206
     test_mode = [2, 1]
  
@@ -100,14 +101,14 @@ if args.method =='id':
 print('==> Loading data..')
 # Data loading code
 normalize = transforms.Normalize(mean=[0.485, 0.456, 0.406],std=[0.229, 0.224, 0.225])
-transform_train = transforms.Compose([
-    transforms.ToPILImage(),
-    # transforms.Resize((280,150), interpolation=2),
-    transforms.RandomCrop((args.img_h,args.img_w)),
-    transforms.RandomHorizontalFlip(),
-    transforms.ToTensor(),
-    normalize,
-])
+# transform_train = transforms.Compose([
+#     transforms.ToPILImage(),
+#     # transforms.Resize((280,150), interpolation=2),
+#     transforms.RandomCrop((args.img_h,args.img_w)),
+#     transforms.RandomHorizontalFlip(),
+#     transforms.ToTensor(),
+#     normalize,
+# ])
 
 transform_test = transforms.Compose([
     transforms.ToPILImage(),
@@ -135,23 +136,43 @@ if dataset =='sysu':
 
     
     queryset = TestData(query_img, query_label, transform = transform_test, img_size =(args.img_w, args.img_h))
-    query_loader = data.DataLoader(queryset, batch_size=args.test_batch, shuffle=False, num_workers=4)
+    query_loader = data.DataLoader(queryset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
     
 elif dataset =='regdb':
     # training set
-    trainset = RegDBData(data_path, args.trial, transform=transform_train)
+    # trainset = RegDBData(data_path, args.trial, transform=transform_train)
     # generate the idx of each person identity
-    color_pos, thermal_pos = GenIdx(trainset.train_color_label, trainset.train_thermal_label)
+    # color_pos, thermal_pos = GenIdx(trainset.train_color_label, trainset.train_thermal_label)
     
     # testing set
     query_img, query_label = process_test_regdb(data_path, trial = args.trial, modal = 'visible')
     gall_img, gall_label  = process_test_regdb(data_path, trial = args.trial, modal = 'thermal')
     
+    nquery = len(query_label)
+    ngall = len(gall_label)
+    print("Dataset statistics:")
+    print("  ------------------------------")
+    print("  subset   | # ids | # images")
+    print("  ------------------------------")
+    print("  query    | {:5d} | {:8d}".format(len(np.unique(query_label)), nquery))
+    print("  gallery  | {:5d} | {:8d}".format(len(np.unique(gall_label)), ngall))
+    
     gallset  = TestData(gall_img, gall_label, transform = transform_test, img_size =(args.img_w,args.img_h))
     gall_loader  = data.DataLoader(gallset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
+    
+    queryset  = TestData(query_img, query_label, transform = transform_test, img_size =(args.img_w,args.img_h))
+    query_loader  = data.DataLoader(queryset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
 
 print('Data Loading Time:\t {:.3f}'.format(time.time()-end))
 
+suffix = dataset +'_M'
+suffix = suffix + '_drop_{}_k_{}_p_{}_lr_{}_seed_{}_test'.format(args.drop, args.num_pos, args.batch_size, args.lr, args.seed)
+
+log_path = args.log_path + 'test_log' + '/'
+if not os.path.isdir(log_path):
+    os.makedirs(log_path)
+
+test_log_file = open(log_path + suffix + '.txt', "w")
 feature_dim = 2048
 if args.arch =='resnet50':
     pool_dim = 2048
@@ -199,61 +220,81 @@ def extract_query_feat(query_loader):
     # return query_feat, query_feat_att
     return query_feat
     
-# query_feat, query_feat_att = extract_query_feat(query_loader)
-query_feat = extract_query_feat(query_loader)
 
-all_cmc = 0
-all_mAP = 0 
-all_cmc_pool = 0
-  
-for trial in range(10):
-    gall_img, gall_label, gall_cam = process_gallery_sysu(data_path, mode = args.mode, trial = trial)
-    
-    trial_gallset = TestData(gall_img, gall_label, transform = transform_test,img_size =(args.img_w,args.img_h))
-    trial_gall_loader  = data.DataLoader(trial_gallset, batch_size=args.test_batch, shuffle=False, num_workers=4)
+
+if dataset == 'sysu': 
+    # query_feat, query_feat_att = extract_query_feat(query_loader)
+    query_feat = extract_query_feat(query_loader)
+
+    all_cmc = 0
+    all_mAP = 0 
+    all_cmc_pool = 0 
+    for trial in range(10):
+        gall_img, gall_label, gall_cam = process_gallery_sysu(data_path, mode = args.mode, trial = trial)
+        
+        trial_gallset = TestData(gall_img, gall_label, transform = transform_test,img_size =(args.img_w,args.img_h))
+        trial_gall_loader  = data.DataLoader(trial_gallset, batch_size=args.test_batch, shuffle=False, num_workers=args.workers)
+        
+        # gall_feat, gall_feat_att = extract_gall_feat(trial_gall_loader)
+        gall_feat = extract_gall_feat(trial_gall_loader)
+        
+        # fc feature 
+        distmat = np.matmul(query_feat, np.transpose(gall_feat))
+        cmc, mAP, mINP   = eval_sysu(-distmat, query_label, gall_label,query_cam, gall_cam)
+        
+        # attention feature
+        # distmat_att = np.matmul(query_feat_att, np.transpose(gall_feat_att))
+        # distmat = np.matmul(query_feat, np.transpose(gall_feat))
+        # cmc_att, mAP_att, mINP_att = eval_sysu(-distmat_att, query_label, gall_label,query_cam, gall_cam)
+        # cmc, mAP, mINP = eval_sysu(-distmat, query_label, gall_label,query_cam, gall_cam)
+        if trial ==0:
+            all_cmc = cmc
+            all_mAP = mAP
+            all_mINP = mINP
+            # all_cmc_att = cmc_att
+            # all_mAP_att = mAP_att
+            # all_mINP_att = mINP_att
+        else:
+            all_cmc = all_cmc + cmc
+            all_mAP = all_mAP + mAP
+            all_mINP = all_mINP + mINP
+            # all_cmc_att = all_cmc_att + cmc_att
+            # all_mAP_att = all_mAP_att + mAP_att
+            # all_mINP_att = all_mINP_att + mINP_att
+
+        print('Test Trial: {}'.format(trial))
+        print('Test Trial: {}'.format(trial), file= test_log_file)
+        print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+                cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
+        print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+                cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP), file= test_log_file)
+            # print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+            # print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+            #         cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
+
+    cmc = all_cmc /10 
+    mAP = all_mAP /10
+    mINP = all_mINP /10
+
+    # cmc_att = all_cmc_att /10
+    # mAP_att = all_mAP_att /10
+    # mINP_att = all_mINP_att /10
+    print ('All Average:')
+    print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+                cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
+    # print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+    #             cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
+
+elif dataset =='regdb':
     
     # gall_feat, gall_feat_att = extract_gall_feat(trial_gall_loader)
-    gall_feat = extract_gall_feat(trial_gall_loader)
+    gall_feat = extract_gall_feat(gall_loader)
     
+    query_feat = extract_query_feat(query_loader)
     # fc feature 
     distmat = np.matmul(query_feat, np.transpose(gall_feat))
-    cmc, mAP, mINP   = eval_sysu(-distmat, query_label, gall_label,query_cam, gall_cam)
+    cmc, mAP, mINP   = eval_regdb(-distmat, query_label, gall_label)
     
-    # attention feature
-    # distmat_att = np.matmul(query_feat_att, np.transpose(gall_feat_att))
-    # distmat = np.matmul(query_feat, np.transpose(gall_feat))
-    # cmc_att, mAP_att, mINP_att = eval_sysu(-distmat_att, query_label, gall_label,query_cam, gall_cam)
-    # cmc, mAP, mINP = eval_sysu(-distmat, query_label, gall_label,query_cam, gall_cam)
-    if trial ==0:
-        all_cmc = cmc
-        all_mAP = mAP
-        all_mINP = mINP
-        # all_cmc_att = cmc_att
-        # all_mAP_att = mAP_att
-        # all_mINP_att = mINP_att
-    else:
-        all_cmc = all_cmc + cmc
-        all_mAP = all_mAP + mAP
-        all_mINP = all_mINP + mINP
-        # all_cmc_att = all_cmc_att + cmc_att
-        # all_mAP_att = all_mAP_att + mAP_att
-        # all_mINP_att = all_mINP_att + mINP_att
-
-    print('Test Trial: {}'.format(trial))
+    print('Test Epoch: {}'.format(start_epoch))
     print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
             cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
-    # print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
-    #         cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
-
-cmc = all_cmc /10 
-mAP = all_mAP /10
-mINP = all_mINP /10
-
-# cmc_att = all_cmc_att /10
-# mAP_att = all_mAP_att /10
-# mINP_att = all_mINP_att /10
-print ('All Average:')
-print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
-            cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
-# print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
-#             cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))

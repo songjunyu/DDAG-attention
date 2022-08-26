@@ -99,7 +99,7 @@ if not os.path.isdir(args.vis_log_path):
     os.makedirs(args.vis_log_path)
 
 # log file name
-suffix = dataset
+suffix = dataset+'_M'
 #if args.graph:
     #suffix = suffix + '_g'
 #if args.wpa:
@@ -121,6 +121,7 @@ writer = SummaryWriter(vis_log_dir)
 print("==========\nArgs:{}\n==========".format(args))
 device = 'cuda' if torch.cuda.is_available() else 'cpu'
 best_acc = 0  # best test accuracy
+best_epoch = 0 #best test epoch
 start_epoch = 0
 feature_dim = args.low_dim
 wG = 0
@@ -214,8 +215,12 @@ criterion2.to(device)
 
 # optimizer
 if args.optim == 'sgd':
-    ignored_params = list(map(id, net.bottleneck.parameters())) \
-                     + list(map(id, net.classifier.parameters())) \
+    ignored_params = list(map(id, net.bottleneck.parameters()))\
+                    +list(map(id, net.bottleneck1.parameters()))\
+                    +list(map(id, net.classifier.parameters())) \
+                    +list(map(id,net.classifier1.parameters())) \
+                    +list(map(id,net.modal_classifier.parameters())) \
+                    +list(map(id,net.modal_classifier1.parameters()))
                     #  + list(map(id, net.wpa.parameters())) \
                     #  + list(map(id, net.attention_0.parameters())) \
                     #  + list(map(id, net.attention_1.parameters())) \
@@ -228,7 +233,12 @@ if args.optim == 'sgd':
     optimizer_P = optim.SGD([
         {'params': base_params, 'lr': 0.1 * args.lr},
         {'params': net.bottleneck.parameters(), 'lr': args.lr},
+        {'params': net.bottleneck1.parameters(), 'lr': args.lr},
         {'params': net.classifier.parameters(), 'lr': args.lr},
+        {'params': net.classifier1.parameters(), 'lr': args.lr},
+        {'params': net.modal_classifier.parameters(), 'lr': args.lr},
+        {'params': net.modal_classifier1.parameters(), 'lr': args.lr},
+        
         # {'params': net.wpa.parameters(), 'lr': args.lr},
         # {'params': net.attention_0.parameters(), 'lr': args.lr},
         # {'params': net.attention_1.parameters(), 'lr': args.lr},
@@ -272,6 +282,7 @@ def train(epoch, wG):
     train_loss = AverageMeter()
     id_loss = AverageMeter()
     tri_loss = AverageMeter()
+    modal_loss = AverageMeter()
     # graph_loss = AverageMeter()
     data_time = AverageMeter()
     batch_time = AverageMeter()
@@ -301,17 +312,31 @@ def train(epoch, wG):
         labels = Variable(labels.cuda())
         # adj_norm = Variable(adj_norm.cuda())
         data_time.update(time.time() - end)
+        
+        modal_v_labels = Variable(torch.ones(loader_batch).long().cuda())
+        modal_t_labels = Variable(torch.zeros(loader_batch).long().cuda())
+        modal_3_labels = Variable(2 * torch.ones(loader_batch).long().cuda())
+        
+        
 
         # Forward into the network, feat->x_pool, out0->class(x_pool.bn), out_att->class(x_pool.bn.wpa),output(x_pool.graph)
         # feat, out0, out_att, output = net(input1, input2, adj_norm)
-        feat, out0 = net(input1, input2)
+        feat, out0, out1, modal0, modal1 = net(input1, input2)
 
         # baseline loss: identity loss + triplet loss Eq. (1)
-        loss_id = criterion1(out0, labels)
+        loss_id = criterion1(out0, labels)+criterion1(out1, labels)
         loss_tri, batch_acc = criterion2(feat, labels)
         correct += (batch_acc / 2)
         _, predicted = out0.max(1)
         correct += (predicted.eq(labels).sum().item() / 2)
+        
+        # modal loss 
+        loss_modal = criterion1(modal0[:loader_batch],modal_3_labels)+criterion1(modal0[loader_batch:],modal_3_labels)+\
+        criterion1(modal1[:loader_batch],modal_v_labels)+criterion1(modal1[loader_batch:],modal_t_labels)
+        
+        
+        
+        
         
         # Part attention loss
         # loss_p = criterion1(out_att, labels)
@@ -323,7 +348,7 @@ def train(epoch, wG):
         # loss = loss_id + loss_tri + loss_p
         # Overall loss Eq. (11)
         # loss_total = loss + wG * loss_G
-        loss = loss_id + loss_tri
+        loss = loss_id + loss_tri + loss_modal
 
 
         # optimization
@@ -336,6 +361,7 @@ def train(epoch, wG):
         train_loss.update(loss.item(), 2 * input1.size(0))
         id_loss.update(loss_id.item(), 2 * input1.size(0))
         tri_loss.update(loss_tri.item(), 2 * input1.size(0))
+        modal_loss.update(loss_modal.item(),2*input1.size(0))
         # graph_loss.update(loss_G.item(), 2 * input1.size(0))
         total += labels.size(0)
 
@@ -349,16 +375,18 @@ def train(epoch, wG):
                   'Loss: {train_loss.val:.4f} ({train_loss.avg:.4f}) '
                   'iLoss: {id_loss.val:.4f} ({id_loss.avg:.4f}) '
                   'TLoss: {tri_loss.val:.4f} ({tri_loss.avg:.4f}) '
+                  'Mloss: {modal_loss.val:.4f}({modal_loss.avg:.4f})'
                 #   'GLoss: {graph_loss.val:.4f} ({graph_loss.avg:.4f}) '
                   'Accu: {:.2f}'.format(
                    epoch, batch_idx, len(trainloader), current_lr,
                    100. * correct / total, batch_time=batch_time,
-                   train_loss=train_loss, id_loss=id_loss, tri_loss=tri_loss
+                   train_loss=train_loss, id_loss=id_loss, tri_loss=tri_loss, modal_loss = modal_loss
                    ))
 
     writer.add_scalar('total_loss', train_loss.avg, epoch)
     writer.add_scalar('id_loss', id_loss.avg, epoch)
     writer.add_scalar('tri_loss', tri_loss.avg, epoch)
+    writer.add_scalar('modal_loss', modal_loss.avg, epoch)
     # writer.add_scalar('graph_loss', graph_loss.avg, epoch)
     writer.add_scalar('lr', current_lr, epoch)
     # computer wG
@@ -427,7 +455,7 @@ def test(epoch):
 
 # training
 print('==> Start Training...')
-for epoch in range(start_epoch, 81 - start_epoch):
+for epoch in range(start_epoch, 81):
 
     print('==> Preparing Data Loader...')
     # identity sampler: 
@@ -479,3 +507,5 @@ for epoch in range(start_epoch, 81 - start_epoch):
                 'epoch': epoch,
             }
             torch.save(state, checkpoint_path + suffix + '_best.t')
+            best_epoch = epoch
+print("best epoch:", best_epoch)
