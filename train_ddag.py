@@ -99,7 +99,7 @@ if not os.path.isdir(args.vis_log_path):
     os.makedirs(args.vis_log_path)
 
 # log file name
-suffix = dataset+'_M'
+suffix = dataset+'_M.2'
 #if args.graph:
     #suffix = suffix + '_g'
 #if args.wpa:
@@ -220,7 +220,7 @@ if args.optim == 'sgd':
                     +list(map(id, net.classifier.parameters())) \
                     +list(map(id,net.classifier1.parameters())) \
                     +list(map(id,net.modal_classifier.parameters())) \
-                    +list(map(id,net.modal_classifier1.parameters()))
+                    # +list(map(id,net.modal_classifier1.parameters()))
                     #  + list(map(id, net.wpa.parameters())) \
                     #  + list(map(id, net.attention_0.parameters())) \
                     #  + list(map(id, net.attention_1.parameters())) \
@@ -237,7 +237,7 @@ if args.optim == 'sgd':
         {'params': net.classifier.parameters(), 'lr': args.lr},
         {'params': net.classifier1.parameters(), 'lr': args.lr},
         {'params': net.modal_classifier.parameters(), 'lr': args.lr},
-        {'params': net.modal_classifier1.parameters(), 'lr': args.lr},
+        # {'params': net.modal_classifier1.parameters(), 'lr': args.lr},
         
         # {'params': net.wpa.parameters(), 'lr': args.lr},
         # {'params': net.attention_0.parameters(), 'lr': args.lr},
@@ -321,8 +321,8 @@ def train(epoch, wG):
 
         # Forward into the network, feat->x_pool, out0->class(x_pool.bn), out_att->class(x_pool.bn.wpa),output(x_pool.graph)
         # feat, out0, out_att, output = net(input1, input2, adj_norm)
-        feat, out0, out1, modal0, modal1 = net(input1, input2)
-
+        feat, out0, out1, modal = net(input1, input2)
+        modal0, modal1 = torch.chunk(modal,2,0)
         # baseline loss: identity loss + triplet loss Eq. (1)
         loss_id = criterion1(out0, labels)+criterion1(out1, labels)
         loss_tri, batch_acc = criterion2(feat, labels)

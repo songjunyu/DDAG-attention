@@ -39,6 +39,10 @@ parser.add_argument('--batch-size', default=8, type=int,
                     metavar='B', help='training batch size')
 parser.add_argument('--part', default=3, type=int,
                     metavar='tb', help=' part number')
+parser.add_argument('--num_pos', default=4, type=int,
+                    help='num of pos per identity in each modality')
+parser.add_argument('--seed', default=0, type=int,
+                    metavar='t', help='random seed')
 parser.add_argument('--test-batch', default=64, type=int,
                     metavar='tb', help='testing batch size')
 parser.add_argument('--method', default='id', type=str,
@@ -282,6 +286,9 @@ if dataset == 'sysu':
     print ('All Average:')
     print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
                 cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP))
+    print ('All Average:',file = test_log_file)
+    print('FC:     Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
+                cmc[0], cmc[4], cmc[9], cmc[19], mAP, mINP),file=test_log_file)
     # print('FC_att: Rank-1: {:.2%} | Rank-5: {:.2%} | Rank-10: {:.2%}| Rank-20: {:.2%}| mAP: {:.2%}| mINP: {:.2%}'.format(
     #             cmc_att[0], cmc_att[4], cmc_att[9], cmc_att[19], mAP_att, mINP_att))
 

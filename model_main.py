@@ -183,7 +183,11 @@ class embed_net(nn.Module):
         self.bottleneck.bias.requires_grad_(False)  # no shift
         
         self.bottleneck1 = nn.BatchNorm1d(pool_dim)
-        self.bottleneck.bias.requires_grad_(False)  # no shift
+        self.bottleneck1.bias.requires_grad_(False)  # no shift
+        
+        self.bottleneck2 = nn.BatchNorm1d(pool_dim)
+        self.bottleneck2.bias.requires_grad_(False)  # no shift
+
 
         self.classifier = nn.Linear(pool_dim, class_num, bias=False)
 
@@ -198,7 +202,7 @@ class embed_net(nn.Module):
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         # self.wpa = IWPA(pool_dim, part)
         self.modal_classifier = modal_Classifier(embed_dim=pool_dim,modal_class=3)
-        self.modal_classifier1 = modal_Classifier(embed_dim=pool_dim,modal_class=3)
+        # self.modal_classifier1 = modal_Classifier(embed_dim=pool_dim,modal_class=3)
 
 
         # self.attentions = [GraphAttentionLayer(pool_dim, low_dim, dropout=drop, alpha=alpha, concat=True) for _ in range(nheads)]
@@ -238,7 +242,7 @@ class embed_net(nn.Module):
             # x_g = F.dropout(x_g, self.dropout, training=self.training)
             # x_g = F.elu(self.out_att(x_g, adj))
             # return x_pool, self.classifier(feat), self.classifier(feat_att), F.log_softmax(x_g, dim=1)
-            return x_pool, self.classifier(feat), self.classifier1(t_feat), self.modal_classifier(feat), self.modal_classifier1(t_feat)
+            return x_pool, self.classifier(feat), self.classifier1(t_feat), self.modal_classifier(torch.cat((feat,t_feat),0))
         else:
             # return self.l2norm(feat), self.l2norm(feat_att)
             return self.l2norm(feat)
